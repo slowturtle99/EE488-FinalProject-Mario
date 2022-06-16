@@ -89,9 +89,9 @@ class CustomReward(Wrapper):
 class CustomSkipFrame(Wrapper):
     def __init__(self, env, skip=4):
         super(CustomSkipFrame, self).__init__(env)
-        self.observation_space = Box(low=0, high=255, shape=(skip, 84, 84))
+        self.observation_space = Box(low=0, high=255, shape=(1, 84, 84))
         self.skip = skip
-        self.states = np.zeros((skip, 84, 84), dtype=np.float32)
+        self.max_state = np.zeros((1, 84, 84), dtype=np.float32)
 
     def step(self, action):
         total_reward = 0
@@ -103,19 +103,42 @@ class CustomSkipFrame(Wrapper):
                 last_states.append(state)
             if done:
                 self.reset()
-                return self.states[None, :, :, :].astype(np.float32), total_reward, done, info
-        max_state = np.max(np.concatenate(last_states, 0), 0)
-        self.states[:-1] = self.states[1:]
-        self.states[-1] = max_state
-        return self.states[None, :, :, :].astype(np.float32), total_reward, done, info
+                return self.max_state.astype(np.float32), total_reward, done, info
+        self.max_state = np.max(np.concatenate(last_states, 0), 0)
+
+        return self.max_state.astype(np.float32), total_reward, done, info
 
     def reset(self):
         state = self.env.reset()
-        self.states = np.concatenate([state for _ in range(self.skip)], 0)
-        return self.states[None, :, :, :].astype(np.float32)
+        self.max_state = state
+        return self.max_state.astype(np.float32)
 
 
-def create_train_env(world, stage, actions, output_path=None):
+class CustomStackFrame(Wrapper):
+    def __init__(self, env, stack=4):
+        super(CustomStackFrame, self).__init__(env)
+        self.observation_space = Box(low=0, high=255, shape=(stack, 84, 84))
+        self.stack = stack
+        self.states = np.zeros((stack, 84, 84), dtype=np.float32)
+
+    def step(self, action):
+        state, reward, done, info = self.env.step(action)
+        if self.stack != 1:  
+            self.states[:-1] = self.states[1:]
+            self.states[-1] = state
+        else:
+            self.states[-1] = state
+        return self.states[None,:,:,:].astype(np.float32), reward, done, info
+
+    def reset(self):
+        state = self.env.reset()
+        self.states = np.concatenate([state for _ in range(self.stack)], 0)
+        return self.states[None,:,:,:].astype(np.float32)
+
+
+def create_train_env(worldStage, actions, output_path=None):
+    world = worldStage[0]
+    stage = worldStage[1]
     env = gym_super_mario_bros.make("SuperMarioBros-{}-{}-v0".format(world, stage))
     if output_path:
         monitor = Monitor(256, 240, output_path)
@@ -125,21 +148,24 @@ def create_train_env(world, stage, actions, output_path=None):
     env = JoypadSpace(env, actions)
     env = CustomReward(env, world, stage, monitor)
     env = CustomSkipFrame(env)
+    env = CustomStackFrame(env, stack=4)
     return env
 
 
 class MultipleEnvironments:
-    def __init__(self, world, stage, action_type, num_envs, output_path=None):
+    def __init__(self, worldStage, action_type, num_envs, output_path=None):
         self.agent_conns, self.env_conns = zip(*[mp.Pipe() for _ in range(num_envs)])
+        self.actions = COMPLEX_MOVEMENT
         if action_type == "right":
-            actions = RIGHT_ONLY
+            self.actions = RIGHT_ONLY
         elif action_type == "simple":
-            actions = SIMPLE_MOVEMENT
+            self.actions = SIMPLE_MOVEMENT
         else:
-            actions = COMPLEX_MOVEMENT
-        self.envs = [create_train_env(world, stage, actions, output_path=output_path) for _ in range(num_envs)]
+            self.actions = COMPLEX_MOVEMENT
+        self.output_path = output_path
+        self.envs = [create_train_env(worldStage, self.actions, output_path=self.output_path) for _ in range(num_envs)]
         self.num_states = self.envs[0].observation_space.shape[0]
-        self.num_actions = len(actions)
+        self.num_actions = len(self.actions)
         for index in range(num_envs):
             process = mp.Process(target=self.run, args=(index,))
             process.start()
@@ -148,10 +174,12 @@ class MultipleEnvironments:
     def run(self, index):
         self.agent_conns[index].close()
         while True:
-            request, action = self.env_conns[index].recv()
+            request, action, worldStage = self.env_conns[index].recv()
             if request == "step":
                 self.env_conns[index].send(self.envs[index].step(action.item()))
             elif request == "reset":
+                self.envs[index].close()
+                self.envs[index] = create_train_env(worldStage, self.actions, output_path=self.output_path)
                 self.env_conns[index].send(self.envs[index].reset())
             else:
                 raise NotImplementedError

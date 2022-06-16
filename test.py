@@ -7,18 +7,19 @@ os.environ['OMP_NUM_THREADS'] = '1'
 import argparse
 import torch
 from src.env import create_train_env
-from src.model import PPO
+from src.model import SimpleCNN2
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT, COMPLEX_MOVEMENT, RIGHT_ONLY
 import torch.nn.functional as F
+import time
 
 
 def get_args():
     parser = argparse.ArgumentParser(
         """Implementation of model described in the paper: Proximal Policy Optimization Algorithms for Contra Nes""")
-    parser.add_argument("--world", type=int, default=1)
-    parser.add_argument("--stage", type=int, default=1)
+    parser.add_argument("--world", type=int, default=3)
+    parser.add_argument("--stage", type=int, default=3)
     parser.add_argument("--action_type", type=str, default="simple")
-    parser.add_argument("--saved_path", type=str, default="trained_models")
+    parser.add_argument("--saved_path", type=str, default="test")
     parser.add_argument("--output_path", type=str, default="output")
     args = parser.parse_args()
     return args
@@ -35,11 +36,13 @@ def test(opt):
         actions = SIMPLE_MOVEMENT
     else:
         actions = COMPLEX_MOVEMENT
-    env = create_train_env(opt.world, opt.stage, actions,
+    env = create_train_env((opt.world, opt.stage), actions,
                            "{}/video_{}_{}.mp4".format(opt.output_path, opt.world, opt.stage))
-    model = PPO(env.observation_space.shape[0], len(actions))
+    model = SimpleCNN2(env.observation_space.shape[0], len(actions))
+
+
     if torch.cuda.is_available():
-        model.load_state_dict(torch.load("{}/ppo_super_mario_bros_{}_{}".format(opt.saved_path, opt.world, opt.stage)))
+        model.load_state_dict(torch.load("trained_models/All/default1/checkpoint_26000"))
         model.cuda()
     else:
         model.load_state_dict(torch.load("{}/ppo_super_mario_bros_{}_{}".format(opt.saved_path, opt.world, opt.stage),
@@ -55,6 +58,7 @@ def test(opt):
         state, reward, done, info = env.step(action)
         state = torch.from_numpy(state)
         env.render()
+        time.sleep(0.05)
         if info["flag_get"]:
             print("World {} stage {} completed".format(opt.world, opt.stage))
             break
