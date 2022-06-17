@@ -1,7 +1,3 @@
-"""
-@author: Viet Nguyen <nhviet1009@gmail.com>
-"""
-
 import gym_super_mario_bros
 from gym.spaces import Box
 from gym import Wrapper

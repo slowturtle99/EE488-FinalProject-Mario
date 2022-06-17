@@ -1,15 +1,9 @@
-"""
-@author: Viet Nguyen <nhviet1009@gmail.com>
-"""
-
 import os
-
 os.environ['OMP_NUM_THREADS'] = '1'
 import argparse
 import torch
 from src.env import MultipleEnvironments
 from src.model import SimpleCNN2
-from src.process import eval
 import torch.multiprocessing as _mp
 from torch.distributions import Categorical
 import torch.nn.functional as F
@@ -70,8 +64,7 @@ def train(opt):
     if torch.cuda.is_available():
         model.cuda()
     model.share_memory()
-    # process = mp.Process(target=eval, args=(opt, model, envs.num_states, envs.num_actions))
-    # process.start()
+    # model.load_state_dict(torch.load("trained_models/All/default3/checkpoint_4500"))
     optimizer = torch.optim.Adam(model.parameters(), lr=opt.lr)
     [agent_conn.send(("reset", None, ws)) for agent_conn in envs.agent_conns]
     curr_states = [agent_conn.recv() for agent_conn in envs.agent_conns]
@@ -80,7 +73,7 @@ def train(opt):
         curr_states = curr_states.cuda()
     curr_episode = 0
 
-    save_path = "{}/{}/{}".format(opt.saved_path, 'All', 'default1')
+    save_path = "{}/{}/{}".format(opt.saved_path, 'All', 'default5')
     logger = Logger(log_dir=(save_path+"/tensorboard"))
 
     while True:

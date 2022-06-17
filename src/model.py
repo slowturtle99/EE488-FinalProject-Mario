@@ -1,8 +1,3 @@
-"""
-@author: Viet Nguyen <nhviet1009@gmail.com>
-"""
-
-from distutils.log import info
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
